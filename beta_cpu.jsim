@@ -1,0 +1,441 @@
+*******************************************************************************
+* LAB #9
+* - Alba, Martin Darius
+* - Macaspac, Chris Julian
+* - Sibayan, Rafaello
+*******************************************************************************
+.include "8clocks.jsim"
+.include "nominal.jsim"
+.include "stdcell.jsim"
+
+*******************************************************************************
+* The $memory statement defines a memory device. Each memory device comes with
+* one or more ports, each of which may be used for either reading or writing.
+*
+* Usage:
+*   Xid  <port def>
+*   +    <port def>
+*   +    ...
+*   + $memory width=<w> nlocations=<n> [file="<x.bin>" | contents=(<c c c>...)]
+*
+* <port def> is in the format "<oe> <clk> <wen> <addr[...]> <data[...]>"
+*
+* w     = the number of data lines (normally 32 in a 32-bit processor)
+* n     = the number of memory locations (addresses) in this memory device
+* x.bin = any .bin file that defines the initial contents of the memory
+*         (must be in the same directory as JSim)
+* c c c = defines the initial contents of the memory in an _inline_ manner
+*         (i.e., not in an external file)
+* oe    = "output enable", enables the memory device to output to the data
+*         lines; this must be ON for read ports and OFF for write ports
+* clk   = a clock input, needed for write ports; the data is written during a
+*         rising edge
+* wen   = "write enable", must be ON whenever we want to write to a write port
+* addr  = a set of lines that contains the address to be accessed by the port
+* data  = a set of lines that contains the data to be output (for read ports)
+*         or the data to be written into memory (for write ports)
+*
+* The number of addr lines provided must be equal to ceiling(log2(nlocations)).
+* The number of data lines provided must be equal to width.
+*
+* Note that if nlocations is not a power of 2, trying to address a non-existent
+* memory location will result in an invalid read! Example: if nlocations=31
+* instead of 32 and addr=0b11111 (31), the output of the device is undefined!
+*******************************************************************************
+
+*******************************************************************************
+* Xmemory is a 512-byte main memory containing both user instructions and data.
+*   1st line = read port for the next instruction to process (inst)
+*   2nd line = read port for LD instructions (memrd)
+*   3rd line = write port for ST instructions (memwd, controlled by wr signal)
+*   5th line = the memory statement itself
+*
+* Variables:
+* nlocations: number of memory cells
+* width: number of bits
+* file: file to be loaded into memory at the start of the simulation
+****************************************************************************************
+
+*******************************************************************************
+Xmemory  vdd  0    0   pc[8:2]    inst[31:0]
++        vdd  0    0   mema[8:2]  memrd[31:0]
++        0    clk  wr  mema[8:2]  memwd[31:0]
++ $memory width=32 nlocations=128 file="lab7_sort.bin"
+
+*******************************************************************************
+* Xregisters is a register memory device to store your Beta registers r0 - r31.
+*   1st line = read port for rd1_ ra
+*   2nd line = read port for rd2_ rb
+*   3rd line = write port for wd (controlled by werf_ signal) rc
+*   4th line = the memory statement itself
+*   succeeding lines = initial values of the registers
+* 
+* For the instantiation of registers, we use nlocations=32 (for r0 - r31). Additionally,
+* the format for such is as follows: 
+* OE (Output Enable), CLK (Clock), WEN (Write Enable), ADDR (Address), DATA (Data Lines)
+*
+* When dealing with read only registers, OE is set to VDD, while WEN is set to 0. 
+* There is also no need for CLK.
+*
+* When dealing with write only registers, OE is set to 0, while WEN is set to the
+* write enable signal (werf_). CLK is also needed for writing data.
+*******************************************************************************
+Xregisters  vdd  0    0      ra1_[4:0]  rd1_[31:0]
++           vdd  0    0      ra2_[4:0]  rd2_[31:0]
++           0    clk  werf_  wa[4:0]    wd[31:0]
++ $memory width=32 nlocations=32 contents=(
++   0 0 0 0 0 0 0 0
++   0 0 0 0 0 0 0 0
++   0 0 0 0 0 0 0 0
++   0 0 0 0 0 0 0 0
++ )
+
+*******************************************************************************
+* The circuit below checks if wa[4:0] = 0b11111. If so, werf will be enabled.
+* Otherwise, werf_ will be forced to 0.
+*******************************************************************************
+XnandA wa[0] wa[1] resA nand2
+XnandB wa[2] wa[3] wa[4] resB nand3
+Xres resA resB finalRes nor2
+* finalRes = 1, iff wa[4:0] = 0b11111, else finalRes = 0
+Xmuxwerf finalRes werf 0 werf_ mux2
+
+*******************************************************************************
+* Xcontrol is a read-only memory (ROM) that defines what to feed into the
+* control signal lines of your final Beta circuit, depending on what opcode
+* was read from your instruction memory (along with an additional signal "z"
+* signifying the evaluation result of a BEQ or BNE instruction).
+*   1st line = read port w/ 7 address lines (z + 6-bit opcode) + 14 data lines
+*   2nd line = the memory statement itself
+*   succeeding lines = the control signals (14 bits each) for all 64 opcodes
+*                      times 2 (first half is for z = 0, second half for z = 1)
+*******************************************************************************
+Xcontrol  vdd  0  0  z opcode[5:0]  control[13:0]
++ $memory width=14 nlocations=128 contents=(
++   0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000
++   0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000
++   0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000
++   0b00011000000001 0b00110000000010 0b11000000000000 0b10000000000001 0b11000000000000 0b00000000000001 0b01000000000001 0b11000000000000
++   0b00000100000001 0b00000100000101 0b11000000000000 0b11000000000000 0b00000111001101 0b00000111010101 0b00000111011101 0b11000000000000
++   0b00000101100001 0b00000101110001 0b00000101011001 0b11000000000000 0b00000110000001 0b00000110000101 0b00000110001101 0b11000000000000
++   0b00010100000001 0b00010100000101 0b11000000000000 0b11000000000000 0b00010111001101 0b00010111010101 0b00010111011101 0b11000000000000
++   0b00010101100001 0b00010101110001 0b00010101011001 0b11000000000000 0b00010110000001 0b00010110000101 0b00010110001101 0b11000000000000
++
++   0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000
++   0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000
++   0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000 0b11000000000000
++   0b00011000000001 0b00110000000010 0b11000000000000 0b10000000000001 0b11000000000000 0b01000000000001 0b00000000000001 0b11000000000000
++   0b00000100000001 0b00000100000101 0b11000000000000 0b11000000000000 0b00000111001101 0b00000111010101 0b00000111011101 0b11000000000000
++   0b00000101100001 0b00000101110001 0b00000101011001 0b11000000000000 0b00000110000001 0b00000110000101 0b00000110001101 0b11000000000000
++   0b00010100000001 0b00010100000101 0b11000000000000 0b11000000000000 0b00010111001101 0b00010111010101 0b00010111011101 0b11000000000000
++   0b00010101100001 0b00010101111001 0b00010101011001 0b11000000000000 0b00010110000001 0b00010110000101 0b00010110001101 0b11000000000000
++ )
+
+***********************************
+* ALU
+***********************************
+
+.subckt fa a b c_in sum c_out
+    Xxor1 a b abxor xor2 
+    Xxor2 c_in abxor sum xor2 
+    Xnand1 c_in abxor nandout1 nand2
+    Xnand2 a b nandout2 nand2
+    Xnand3 nandout1 nandout2 c_out nand2
+.ends
+
+.subckt add32 a[31:0] b[31:0] cin0 sum[31:0] cout[31:30]
+    Xfaloop a[31:0] b[31:0] cout[30:0] cin0 sum[31:0] cout[31:0] fa
+.ends
+
+.subckt as32 a[31:0] b[31:0] op0 fas[31:0] n v z
+    Xnotb b[31:0] notb[31:0] inverter
+    Xmuxas32 op0#32 b[31:0] notb[31:0] finalb[31:0] mux2
+    Xasadd32 a[31:0] finalb[31:0] op0 fas[31:0] cout[31:30] add32
+    Xnegative fas[31] n buffer
+    Xxor3 cout31 cout30 v xor2
+    Xcheckzero fas[31:0] z detect_zero
+.ends
+
+.subckt detect_zero a[31:0] zero
+    Xnor1base a[0] a[1] a[2] a[3] nor1base nor4
+    Xnor2base a[4] a[5] a[6] a[7] nor2base nor4
+    Xnor3base a[8] a[9] a[10] a[11] nor3base nor4
+    Xnor4base a[12] a[13] a[14] a[15] nor4base nor4
+    Xnor5base a[16] a[17] a[18] a[19] nor5base nor4
+    Xnor6base a[20] a[21] a[22] a[23] nor6base nor4
+    Xnor7base a[24] a[25] a[26] a[27] nor7base nor4
+    Xnor8base a[28] a[29] a[30] a[31] nor8base nor4
+    Xnand1second nor1base nor2base nor3base nor4base nand1second nand4
+    Xnand2second nor5base nor6base nor7base nor8base nand2second nand4
+    Xnorfinal nand1second nand2second zero nor2
+.ends
+
+* zero buffer to fill all other bits with 0, since we can't have blanks.
+* negfinal determines the final sign by checking if the overflow variable and the sign of the number
+* if overflow, then it is the opposite sign, else same, output is neg_final
+.subckt cmp32 n v z op[2:1] fcmp[31:0]
+    Xzero 0#31 fcmp[31:1] buffer
+    Xnegfinal v n neg_final xor2
+    Xlesseqfinal neg_final z lesseq_final or2
+    Xmux op[1] op[2] 0 z neg_final lesseq_final fcmp[0] mux4
+.ends
+
+***********************************************************************
+* BOOL32 COMMENTS
+* 
+* AND GATE = 8 (1000)
+* OR GATE = 14 (1110)
+* NOT A = 5 (0101)
+* NOT B = 10 (1010)
+* XOR GATE = 6 (0110)
+* op[3:0] determines logic used
+* e.g. 8 = 1000 is AND, since: 00=0, 01=0, 10=0, 11=1 (op[0:3])
+***********************************************************************
+
+.subckt bool32 a[31:0] b[31:0] op[3:0] fbool[31:0]
+    Xmuxbool32 a[31:0] b[31:0] op[0]#32 op[1]#32 op[2]#32 op[3]#32 fbool[31:0] mux4
+.ends
+
+***********************************************************************
+* SHIFT32 COMMENTS
+* 
+* Xconst determines if the operation will be a logical shift, or arithmetic shift
+* 	depending on op1. If op1 is 0, then the operation is a logical shift, if op1 is 1, then
+* 	the operation is an arithmetic shift. In JSIM, this is done by connecting ground or
+*	a31 to a const node, which will be used later.
+*
+* Xinvertin determines if the operation will be a left or right shift depending on
+* 	op0. If op0 is 0, then the operation will be a left shift, then if op0 is 1, then
+* 	the operation will be a right shift. In JSIM, this is done by either connecting a[0:31]
+* 	or a[31:0] (note the reversed order) into a node in[31:0], which will be used later.
+*
+* LOGICAL SHIFT LEFT = 0 (XX00)
+* LOGICAL SHIFT RIGHT = 1 (XX01)
+* ARITHMETIC SHIFT RIGHT = 2 (XX11)
+* shift32 only requires 2 bits for each operation mode, hence the rest of the alufn bits are
+*	don't care.
+*
+* Xshift1 to Xshift16 shifts the bits in the direction indicated in op0 by first determining
+*	if b[0], 1 bit, will be shifted. If b[0] is 1, then const will be appended to res[0], while
+* 	the rest of the res bits are filled up by the remaining bits in in[31:1]. res[31:0] is then
+* 	cascaded into the next level of b as the output if the next b bit is 0. If the next b bit is 1,
+* 	then const is connected to res, shifting the bits. This repeats until Xshift16.
+***********************************************************************
+
+.subckt shift32 a[31:0] b[4:0] op[1:0] fshift[31:0]
+    * determine bit to swap
+    Xconst op[1] 0 a[31] const mux2
+
+    * determines left or right shift
+    Xinvertin op[0]#32 a[0:31] a[31:0] in[31:0] mux2
+
+    * cascade mux (in->res)
+    Xshift1 b[0]#32 in[31:0] const in[31:1] res[31:0] mux2
+    Xshift2 b[1]#32 res[31:0] const#2 res[31:2] res2shift[31:0] mux2
+    Xshift4 b[2]#32 res2shift[31:0] const#4 res2shift[31:4] res4shift[31:0] mux2
+    Xshift8 b[3]#32 res4shift[31:0] const#8 res4shift[31:8] res16shift[31:0] mux2
+    Xshift16 b[4]#32 res16shift[31:0] const#16 res16shift[31:16] res32shift[31:0] mux2
+    
+    * flips it to make it left/right shift
+    Xfinalout op[0]#32 res32shift[0:31] res32shift[31:0] fshift[31:0] mux2
+.ends
+
+************************************************************************
+* ALU32 COMMENTS
+* 
+* In order to minimize the amount of circuits used, we instantiated each subcircuit
+* once, and connected each of them to one outputting mux4, where alufn[5] and alufn[4]
+* determined which subcircuit to use.
+************************************************************************
+
+.subckt alu32 a[31:0] b[31:0] alufn[5:0] f[31:0]
+    Xas32 a[31:0] b[31:0] alufn[0] fas[31:0] n v z as32
+    Xbool32 a[31:0] b[31:0] alufn[3:0] fbool[31:0] bool32
+    Xshift32 a[31:0] b[4:0] alufn[1:0] fshift[31:0] shift32
+    Xcmp32 n v z alufn[2:1] fcmp[31:0] cmp32
+    Xalu32 alufn[4]#32 alufn[5]#32 fas[31:0] fbool[31:0] fshift[31:0] fcmp[31:0] f[31:0] mux4
+.ends
+
+*******************************************************************************
+* Helper subckt to facilitate multi-bit joins.
+*******************************************************************************
+.subckt join S T
+  .connect S T
+.ends
+
+*******************************************************************************
+* The following .connect statements define what control signal goes to which
+* of the 14 bits of the control ROM's output. The bits are ordered as they
+* appear in the control logic diagram of your 50.01 slides.
+*******************************************************************************
+Xjcontrola control[13:12] pcsel[1:0] join
+Xjcontrolb control11      ra2sel     join
+Xjcontrolc control10      bsel       join
+Xjcontrold control[9:8]   wdsel[1:0] join
+Xjcontrole control[7:2]   alufn[5:0] join
+Xjcontrolf control1       temp_wr         join
+Xjcontrolg control0       temp_werf       join
+
+*******************************************************************************
+* Also connect our instruction signal lines to our opcode, rc, ra, rb, and c.
+*******************************************************************************
+Xjinsta inst[31:26] opcode[5:0] join
+Xjinstb inst[25:21] rc[4:0]     join
+Xjinstc inst[20:16] ra[4:0]     join
+Xjinstd inst[15:11] rb[4:0]     join
+Xjinste inst[15:0]  c[15:0]     join
+
+.connect clk4 clk
+*******************************************************************************
+* This section plots the following signals in order:
+* - pc (program counter)
+* - beta operation mnemonic (taken from the 6-bit opcode header)
+* - ra, rb, rc (taken from the rest of the instruction opcode)
+* - c (taken from the last 16 bits of the instruction opcode)
+* - control signals (i.e., output of the control logic)
+* - rd1_ (result of reading address ra1_)
+* - rd2_ (result of reading address ra2_)
+* - wd (value being written to address wa -- but only if werf_ is 1)
+* - mema (address to access in main memory)
+* - memrd (result of reading address mema)
+* - memwd (value being written to address mema -- but only if wr is 1)
+*
+* Since the circuit is incomplete, the values will be invalid starting from the
+* control signals. After you're done with this current lab, the control signals
+* should be correct. (After you're done with the final lab, everything should
+* be correct!)
+*
+* IMPORTANT: Since z is currently connected to 0, only the first half of your
+*            table of control logic signals is returned. To test the second
+*            half of your table, modify the ".connect 0 z" statement above
+*            this section to ".connect vdd z". (Remember that in the final
+*            lab, z should instead be computed by some circuit instead of
+*            connected to ground or vdd!)
+*******************************************************************************
+
+*******************************************************************************
+* RA2SEL mux
+* 0 = rb
+* 1 = rc
+*******************************************************************************
+Xmuxra2sel ra2sel#5 rb[4:0] rc[4:0] ra2sel_out[4:0] mux2
+
+*******************************************************************************
+* CONNECT ADDRESS FOR REGISTER FILE
+*******************************************************************************
+Xraconnect ra[4:0] ra1_[4:0] join
+Xrbconnect ra2sel_out[4:0] ra2_[4:0] join
+Xrcconnect rc[4:0] wa[4:0] join
+
+*******************************************************************************
+* PC INC4
+*******************************************************************************
+.subckt inc4 in[8:0] times[8:0] res[8:0]
+    Xadd in[2:8] times[0:6] 0 c_out[0:5] res[2:8] c_out[0:6] fa
+    .connect 0 res[1:0]
+.ends
+
+Xconst1 normalconst constant1
+
+* normal inc: + 4
+Xpcinc4 pc[8:0] 0#8 normalconst pcnorm[8:0] inc4
+* branch inc: normal inc + 4C, where c is a multiple for the branch label
+Xpcbranch pcnorm[8:0] c[8:0] branchres[8:0] inc4
+
+*******************************************************************************
+* PCSEL MUX
+* 0 = normal inc
+* 1 = branch res
+* 2 = JT (JT == RA's data)
+* 3 = HALT (go to the same PC)
+*******************************************************************************
+Xpcselmux pcsel0#9 pcsel1#9 pcnorm[8:0] branchres[8:0] radata[8:0] pc[8:0] pc_res[8:0] mux4
+
+*******************************************************************************
+* CONNECT DATA
+*******************************************************************************
+Xradata rd1_[31:0] radata[31:0] join
+Xrbdata rd2_[31:0] rbdata[31:0] join
+
+*******************************************************************************
+* Z NOT
+*******************************************************************************
+.subckt nor32 in[31:0] z
+    Xnorbase in[31:0] resbase[7:0] nor4
+    Xnandbase resbase[7:0] resstage[1:0] nand4
+    Xnorfinal resstage[1] resstage[0] z nor2
+.ends
+
+Xznot radata[31:0] z nor32
+
+*******************************************************************************
+* BSEL MUX
+*******************************************************************************
+*.connect c[31:15]
+.connect c[15] c[31:16]
+Xbsel bsel#32 rbdata[31:0] c[31:0] rbsel_out[31:0] mux2
+
+*******************************************************************************
+* ALU
+*******************************************************************************
+Xalu32 radata[31:0] rbsel_out[31:0] alufn[5:0] alures[31:0] alu32
+
+*******************************************************************************
+* DATA MEMORY STORING
+*******************************************************************************
+Xwdconnect rbdata[31:0] memwd[31:0] join
+Xmemaconnect alures[8:2] mema[8:2] join
+* trail zeroes
+.connect 0 mema[1:0]
+
+*******************************************************************************
+* WDSEL MUX
+* 0 = pc
+* 1 = alures
+* 2 = data memory RD
+* 3 = garbage (padded with 0 for fill)
+*******************************************************************************
+Xwdsel wdsel0#32 wdsel1#32 0#23 pc[8:0] alures[31:0] memrd[31:0] 0#32 wd[31:0] mux4
+
+*******************************************************************************
+* RESET LOGIC for PC
+*******************************************************************************
+Xresetpcmux[8:0] reset#9 pc_res[8:0] 0#9 pcfinal[8:0] mux2
+Xresetpcdreg[8:0] pcfinal[8:0] clk#9 pc[8:0] dreg
+
+*******************************************************************************
+* RESET LOGIC for Wr and WERF
+*******************************************************************************
+Xresetwrmux reset temp_wr 0 wrfinal mux2
+.connect wrfinal wr
+
+Xresetwerfmux reset temp_werf 0 werffinal mux2
+.connect werffinal werf
+
+*******************************************************************************
+* Plot some signals together (or else we won't have enough space in the plot
+* window)
+*******************************************************************************
+Xjdisplaya ra2_b_wdsel[3:0] ra2sel bsel wdsel[1:0] join
+Xjdisplayb wr_werfs[2:0]    wr werf werf_          join
+
+Wreset reset nrz(0, 5, 40ns, 0ns, 0.1ns, 0.1ns)
++ 1 0
+
+.tran 12000ns
+.plot pc[8:0]
+.plot betaop(opcode[5:0])
+.plot d(ra[4:0])
+.plot d(rb[4:0])
+.plot d(rc[4:0])
+.plot sd(c[15:0])
+.plot b(pcsel[1:0])
+.plot b(ra2_b_wdsel[3:0])
+.plot b(alufn[5:0])
+.plot b(wr_werfs[2:0])
+.plot sd(rd1_[31:0])
+.plot sd(rd2_[31:0])
+.plot sd(wd[31:0])
+.plot d(mema[8:0])
+.plot sd(memrd[31:0])
+.plot sd(memwd[31:0])
