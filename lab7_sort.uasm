@@ -1,0 +1,54 @@
+.include beta.uasm
+| Selection Sort
+| r0 = counter1, r1 = displacement1 (i), r2 = minval, r8 = curval1
+| r3 = counter2, r4 = displacement2 (j), r5 = curval2, r6 = bool from loop2, r7 = idx minval
+| r9 = temp var
+
+LD(r31, ARRAY, r0)
+LOOPONE:
+
+    BEQ(r0, DONE)
+    ADDC(r1, 4, r1)
+    LD(r1, ARRAY, r8)
+
+    ADDC(r0, 0, r3) | len(i) = len(j)
+    ADDC(r1, 0, r4) 
+    SUBC(r3, 1, r3) | i = j - 1 (skip first elem.)
+
+    ADDC(r8, 0, r2)
+    ADDC(r1, 0, r7) | reset minval idx
+    LOOPTWO:
+        BEQ(r3, LOOPTWODONE)
+
+        ADDC(r4, 4, r4) | start at array[i + 1] element to avoid unnecessary comparison
+        LD(r4, ARRAY, r5) | int r5 = array[r4];
+
+        CMPLT(r5, r2, r6) | new minval?
+        SUBC(r3, 1, r3) | j--;
+        BT(r6, LESSTHAN)
+        BR(LOOPTWO)
+        LESSTHAN:
+            ADDC(r5, 0, r2)
+            ADDC(r4, 0, r7)
+            BR(LOOPTWO)
+    
+    LOOPTWODONE:
+        ADDC(r8, 0, r9) | int temp = arr[i];
+        ST(r2, ARRAY, r1) | arr[i] = minval;
+        ST(r9, ARRAY, r7) | arr[minval_idx] = temp;
+        SUBC(r0, 1, r0)
+        BR(LOOPONE)
+
+DONE:
+    HALT()
+
+.=0x19C
+ARRAY:
+    LONG(7) | LEN OF ARR
+    LONG(5)
+    LONG(7)
+    LONG(8)
+    LONG(6)
+    LONG(4)
+    LONG(9)
+    LONG(3)
